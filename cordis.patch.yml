@@ -1,0 +1,15 @@
+- insert:
+    - id: human-intervention-alert
+      name: 'dsh-human-alert'
+      config:
+        # Which situations raise a native alert
+        notifyApprovals: true   # tool-execution approval (approval/request)
+        notifyQuestions: true   # ask_user_question / plan review (user-questions/request)
+        notifyAuth: true        # DeepSeek account re-login required
+        # Presentation
+        sound: true             # play the system notification sound
+        bounceDock: true        # macOS Dock bounce for the in-process Electron backend
+        activateApp: false      # forcibly raise the Harness window on every alert
+        # Noise control
+        delayMs: 400            # do not alert if another answerer settles this fast
+        debounceMs: 4000        # suppress an identical alert within this window

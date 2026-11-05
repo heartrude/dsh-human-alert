@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Human Intervention Alerts",
+    "description": "Raises a native OS notification when an agent waits for approval, asks a question, or requires an account sign-in; click the notification to bring Harness to the front."
+  }
+}

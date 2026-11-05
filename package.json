@@ -1,0 +1,44 @@
+{
+  "name": "dsh-human-alert",
+  "version": "1.0.0",
+  "description": "Native OS alerts when a DeepSeek Harness agent needs the human: approvals, questions, and account re-login.",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "notification",
+    "approval",
+    "macos"
+  ],
+  "author": "heartrude",
+  "license": "MIT",
+  "homepage": "https://github.com/heartrude/dsh-human-alert#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/heartrude/dsh-human-alert.git"
+  },
+  "bugs": {
+    "url": "https://github.com/heartrude/dsh-human-alert/issues"
+  },
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "bin/**/*",
+    "notifier-src/**/*",
+    "README.md"
+  ],
+  "engines": {
+    "dsh": ">=0.2.0-rc.2"
+  },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" }
+  }
+}

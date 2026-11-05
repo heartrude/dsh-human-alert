@@ -1,0 +1,8 @@
+# Build artifacts and caches
+.build-cache/
+*.build/
+.DS_Store
+node_modules/
+
+# Local diagnostics
+/tmp/
