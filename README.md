@@ -17,9 +17,22 @@ every decision to the normal answerers and alerts only when the request is still
 after 400 ms; identical alerts are de-duplicated for 4 seconds.
 
 **macOS:** a bundled native notifier (`bin/DSHHumanAlert.app`, universal Apple Silicon +
-Intel binary) posts the banner with its own notification permission. Clicking a banner
-brings the DeepSeek Harness window to the front. Falls back to `osascript` if the helper
-is unavailable. Linux uses `notify-send`; Windows shows a detached PowerShell message box.
+Intel binary) posts the banner with its own notification permission. **Clicking a banner
+brings DeepSeek Harness to the front and switches straight to the Session that raised the
+alert** — even across multiple running tasks. Falls back to `osascript` if the helper is
+unavailable. Linux uses `notify-send`; Windows shows a detached PowerShell message box
+(those two platforms focus the window only).
+
+### How click-to-task works (v1.1+)
+
+The notifier is a short-lived process and may already have exited by the time you click,
+so macOS cold-launches it again. The target Session id, loopback origin, and a per-process
+random nonce travel inside the notification's `userInfo`; on click the helper calls
+`GET /dsh-human-alert/focus?session=…&nonce=…` on the Host, which broadcasts the Session
+id over a same-origin SSE channel; the plugin's Client half then calls
+`uiWorkspace.openSession(sessionId)`. The nonce is the only accepted credential (the
+native helper has no browser cookie); routes reject invalid nonces, bad Session ids, and
+cross-origin requests.
 
 ## Install
 
@@ -98,8 +111,17 @@ permission entry under System Settings → Notifications if desired.
 - DeepSeek 账号过期 → 弹重新登录提醒
 
 **纯观察者**：不替你批准、不替你回答；400ms 内被自动处理的不弹；相同内容 4 秒去重。
-macOS 附带通用原生通知器（Apple Silicon + Intel），**点击横幅自动把 Harness 窗口置前**；
-Linux 走 `notify-send`，Windows 走 PowerShell 消息框。
+macOS 附带通用原生通知器（Apple Silicon + Intel），**点击横幅不仅把窗口置前，还会直接
+切换到发起提醒的那个任务（Session）**——同时跑多个任务也不会找错；
+Linux 走 `notify-send`，Windows 走 PowerShell 消息框（这两个平台仅置前窗口）。
+
+### 「点击跳任务」原理（v1.1+）
+
+通知器是秒退的短生命周期进程，点击时 macOS 会冷启动它；目标 Session id、回环 origin
+和进程级随机 nonce 封装在通知的 `userInfo` 里，点击后通知器回调 Host 的
+`GET /dsh-human-alert/focus?session=…&nonce=…`，Host 再通过同源 SSE 通道广播给页面里的
+插件 Client 半，由其调用 `uiWorkspace.openSession(sessionId)` 完成跳转。nonce 是唯一
+凭证（原生通知器没有浏览器 Cookie），路由会拒绝错误 nonce、非法 Session id 和跨源请求。
 
 ### 安装
 

@@ -1,7 +1,7 @@
 {
   "name": "dsh-human-alert",
-  "version": "1.0.0",
-  "description": "Native OS alerts when a DeepSeek Harness agent needs the human: approvals, questions, and account re-login.",
+  "version": "1.1.0",
+  "description": "Native OS alerts when a DeepSeek Harness agent needs the human: approvals, questions, re-login. Click a banner to jump to the alerting task.",
   "keywords": [
     "deepseek-harness",
     "dsh",
@@ -23,11 +23,13 @@
   "type": "module",
   "exports": {
     ".": "./index.js",
+    "./client": "./client.js",
     "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg"
   },
   "files": [
     "index.js",
+    "client.js",
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg",
@@ -39,6 +41,10 @@
     "dsh": ">=0.2.0-rc.2"
   },
   "dsh": {
-    "bundle": { "patch": "./cordis.patch.yml" }
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
   }
 }

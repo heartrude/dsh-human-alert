@@ -1,4 +1,5 @@
 import AppKit
+import Foundation
 import UserNotifications
 
 let LOG_PATH = "/tmp/dsh-notifier.log"
@@ -15,8 +16,56 @@ func nlog(_ msg: String) {
     }
 }
 
+func argValue(_ args: [String], _ key: String) -> String? {
+    guard let index = args.firstIndex(of: key), index + 1 < args.count else {
+        return nil
+    }
+    return args[index + 1]
+}
+
+/// Loopback callback carried inside the notification so a click still reaches
+/// the Host after a cold relaunch (the helper exits seconds after posting).
+struct ClickRoute {
+    let session: String
+    let origin: String
+    let nonce: String
+
+    init?(userInfo: [AnyHashable: Any]) {
+        guard let session = userInfo["session"] as? String,
+              let origin = userInfo["origin"] as? String,
+              let nonce = userInfo["nonce"] as? String else { return nil }
+        self.session = session
+        self.origin = origin
+        self.nonce = nonce
+    }
+
+    func fire() {
+        guard let base = URLComponents(string: origin),
+              let scheme = base.scheme, scheme == "http" || scheme == "https",
+              let baseUrl = base.url else {
+            nlog("focus callback: bad origin \(origin)")
+            return
+        }
+        var comps = URLComponents(
+            url: baseUrl.appendingPathComponent("dsh-human-alert/focus"),
+            resolvingAgainstBaseURL: false
+        )
+        comps?.queryItems = [
+            URLQueryItem(name: "session", value: session),
+            URLQueryItem(name: "nonce", value: nonce),
+        ]
+        guard let url = comps?.url else { return }
+        let task = URLSession.shared.dataTask(with: url) { _, response, error in
+            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+            nlog("focus callback session=\(session) http=\(code) error=\(String(describing: error))")
+        }
+        task.resume()
+    }
+}
+
 final class AlertDelegate: NSObject, UNUserNotificationCenterDelegate {
     let targetBundle: String
+    var terminating = false
 
     init(targetBundle: String) {
         self.targetBundle = targetBundle
@@ -31,13 +80,19 @@ final class AlertDelegate: NSObject, UNUserNotificationCenterDelegate {
         return [.banner, .sound]
     }
 
-    // Banner clicked while the helper is alive: raise the target app.
+    // Banner clicked (helper alive, or system cold-launched us for the click):
+    // raise the target app and tell the Host which Session to select.
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
-        nlog("clicked: activating \(targetBundle)")
+        let info = response.notification.request.content.userInfo
+        let route = ClickRoute(userInfo: info)
+        nlog("clicked: activating \(targetBundle) focus=\(route != nil)")
         activateTarget()
+        route?.fire()
+        // Give the HTTP callback time to finish before exiting.
+        scheduleTermination(after: 3)
     }
 
     func activateTarget() {
@@ -55,61 +110,64 @@ final class AlertDelegate: NSObject, UNUserNotificationCenterDelegate {
             )
         }
     }
-}
 
-func argValue(_ args: [String], _ key: String) -> String? {
-    guard let index = args.firstIndex(of: key), index + 1 < args.count else {
-        return nil
+    func scheduleTermination(after seconds: Double) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !self.terminating else { return }
+            self.terminating = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
+                NSApp.terminate(nil)
+            }
+        }
     }
-    return args[index + 1]
 }
 
-// The notification target's bundle id can be changed via Info.plist-less args;
-// default to DeepSeek Harness on macOS.
 let arguments = CommandLine.arguments
-let targetBundle = argValue(arguments, "--target-bundle") ?? "com.deepseek.dsh"
-let body = argValue(arguments, "--body") ?? ""
-let sound = argValue(arguments, "--sound") != "0"
-let activate = argValue(arguments, "--activate") == "1"
-let isStatusCheck = arguments.contains("--status")
-let contentTitle = argValue(arguments, "--title")
-
 nlog("launch args=\(arguments.dropFirst().joined(separator: " ")) bundle=\(Bundle.main.bundleIdentifier ?? "nil")")
 
 let app = NSApplication.shared
+let targetBundle = argValue(arguments, "--target-bundle") ?? "com.deepseek.dsh"
 let delegate = AlertDelegate(targetBundle: targetBundle)
 let center = UNUserNotificationCenter.current()
 center.delegate = delegate
 
-func finish(after seconds: Double = 2.0) {
-    DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
-        app.terminate(nil)
-    }
-}
-
-// Cold launch without content args happens when the user clicks a delivered
-// banner after the short-lived helper already exited: only raise the target.
-guard let title = contentTitle, !isStatusCheck else {
-    if isStatusCheck {
-        center.getNotificationSettings { settings in
-            nlog("authorizationStatus=\(settings.authorizationStatus.rawValue)")
-            DispatchQueue.main.async { app.terminate(nil) }
-        }
-    } else {
-        nlog("cold launch without content: activating target only")
-        app.setActivationPolicy(.accessory)
-        delegate.activateTarget()
-        finish(after: 1.5)
+if arguments.contains("--status") {
+    center.getNotificationSettings { settings in
+        nlog("authorizationStatus=\(settings.authorizationStatus.rawValue)")
+        DispatchQueue.main.async { app.terminate(nil) }
     }
     app.run()
     exit(0)
 }
+
+// Cold launch without content args happens when the user clicks a delivered
+// banner after the short-lived helper already exited. Do NOT post anything:
+// wait for the click response (carries the session route in userInfo).
+guard let title = argValue(arguments, "--title") else {
+    nlog("cold launch without content: activating target, awaiting click route")
+    app.setActivationPolicy(.accessory)
+    delegate.activateTarget()
+    delegate.scheduleTermination(after: 10) // watchdog if no response arrives
+    app.run()
+    exit(0)
+}
+
+let body = argValue(arguments, "--body") ?? ""
+let sound = argValue(arguments, "--sound") != "0"
+let activate = argValue(arguments, "--activate") == "1"
+let session = argValue(arguments, "--session")
+let origin = argValue(arguments, "--origin")
+let nonce = argValue(arguments, "--nonce")
 
 let content = UNMutableNotificationContent()
 content.title = title
 content.body = body
 content.sound = sound ? .default : nil
 content.interruptionLevel = .active
+if let session, let origin, let nonce {
+    content.userInfo = ["session": session, "origin": origin, "nonce": nonce]
+}
+
 let request = UNNotificationRequest(
     identifier: UUID().uuidString,
     content: content,
@@ -173,7 +231,7 @@ center.getNotificationSettings { settings in
             if activate { delegate.activateTarget() }
             // Hide from Dock shortly after first-run authorization.
             DispatchQueue.main.async { app.setActivationPolicy(.accessory) }
-            finish(after: 4)
+            delegate.scheduleTermination(after: 4)
         }
     }
 }
